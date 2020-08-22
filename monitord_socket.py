@@ -40,9 +40,17 @@ class MonitordSocketClient:
         return
 
 
-    def startNewDataThread(self, data):
-        x = threading.Thread(target=self.processData, args=(data,))
-        x.start()
+        trigger = self.checkIfAlertinFilter(zvei)
+        if not trigger:
+            self.logger.info("{}Received alarm not in filter. Stopping...".format("[" + str(zvei) + "]: "))
+            return
+        self.logger.info("{}!!!Received alarm in filter {} (Time: {}) Starting...".format("[" + str(zvei) + "]: ", trigger["name"], str(datetime.now().time())))
+        if self.isTestAlert(trigger):
+            self.logger.info("{}Testalart time. Stopping...".format("[" + str(zvei) + "]: "))
+            return
+        self.logger.info("{}Start alarm tasks...".format("[" + str(zvei) + "]: "))
+        self.doAlertThings(zvei, trigger)
+        return
 
     def checkIfDoubleAlert(self, zvei):
         double_alert = False
