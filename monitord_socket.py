@@ -1,15 +1,11 @@
 #!/usr/bin/python3
-import socket
-import time
+import socket, time, sys, threading, subprocess
 import logbook
 from logbook import Logger, StreamHandler, MonitoringFileHandler
-import sys
-import threading
-from datetime import datetime
-from datetime import time as dtime
+from datetime import datetime, time as dtime
 import requests
 import pprint
-import subprocess
+import json
 
 class MonitordSocketClient:
 
