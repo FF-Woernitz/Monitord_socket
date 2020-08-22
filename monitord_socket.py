@@ -8,20 +8,26 @@ import pprint
 import json
 
 class MonitordSocketClient:
-
-    HOST = '127.0.0.1'
-    PORT = 9333
-
-    LOGLEVEL = 'INFO'
-
-    FILTER_LIST = ["27835"]
-    DIVERA_KEY = ""
-
-
     lastAlert_time = 0.0
     lastAlert_zvei = "0"
-
     logger = 0
+
+    def __init__(self):
+        self.loadConfig()
+
+    def loadConfig(self):
+        with open("config.json") as config_file:
+            config = json.load(config_file)
+            if len(config["config"]) != 7:
+                raise Exception("Please check config file. Wrong count of config options")
+            if len(config["trigger"]) == 0:
+                raise Exception("Please check config file. No trigger defined")
+            self.config = config["config"]
+            self.triggers = config["trigger"]
+
+    def startNewDataThread(self, data):
+        x = threading.Thread(target=self.processData, args=(data,))
+        x.start()
 
     def processData(self, raw_data):
         data = raw_data.split(":")
@@ -51,58 +57,47 @@ class MonitordSocketClient:
         return double_alert
 
     def checkIfAlertinFilter(self, zvei):
-
-        for x in self.FILTER_LIST:
-            if x == zvei:
-                return True
+        for key, config in self.triggers:
+            if key == zvei:
+                return config
         return False
 
-    def isTestAlert(self):
-        begin_time = dtime(12,10)
-        end_time = dtime(12,25)
+    def isTestAlert(self, trigger):
+        begin_time = dtime(trigger["hour_start"], trigger["minute_start"])
+        end_time = dtime(trigger["hour_end"], trigger["minute_end"])
         check_time = datetime.now().time()
-        return datetime.today().weekday() == 5 and check_time >= begin_time and check_time <= end_time
+        return datetime.today().weekday() == trigger["weekday"] and check_time >= begin_time and check_time <= end_time
 
-    def newAlert(self, zvei):
-        if self.checkIfDoubleAlert(zvei):
-            return
-        self.logger.info("Received alarm. ZVEI: " + zvei)
-        subprocess.check_output('/usr/bin/zabbix_sender -c /etc/zabbix/zabbix_agentd.conf -k "receivedZVEI" -o "' + str(zvei) + '"', shell=True)
+    def doAlertThings(self, zvei, trigger):
+        payload = trigger["request"]
+        for request_try in range(self.config["retries"]):
+            r = requests.get(self.config["url"], params=payload)
+            self.logger.debug(pprint.saferepr(r.url))
+            self.logger.debug(pprint.saferepr(r.status_code))
+            self.logger.debug(pprint.saferepr(r.content))
+            self.logger.debug(pprint.saferepr(r.headers))
+            if not r.status_code == requests.codes.ok:
+                self.logger.error("{}Failed to send alert. Try: {}/{}".format("[" + str(zvei) + "]: ", str(request_try + 1), str(self.config["retries"])))
+                time.sleep(self.config["retry_delay"])
+                continue
+            else:
+                self.logger.info("{}Successfully send alert".format("[" + str(zvei) + "]: "))
+                break
 
-        if not self.checkIfAlertinFilter(zvei):
-            self.logger.info("Received alarm not in filter. Stopping...")
-            return
-        self.logger.info("!!!Received alarm in filter!!! (Time: " + str(datetime.now().time()) + ") Starting...")
-        if self.isTestAlert():
-            self.logger.info("Testalart time. Stopping...")
-            return
-        self.logger.info("Start alarm tasks...")
-        self.doAlertThings(zvei)
-        return
 
-    def doAlertThings(self, zvei):
-        payload = {'accesskey': self.DIVERA_KEY, 'type': 'Einsatz'}
-        r = requests.get("https://www.divera247.com/api/alarm", params=payload)
-        if not r.status_code == requests.codes.ok:
-            self.logger.error("Received bad status code. Code: " + str(r.status_code))
-        self.logger.info("Received status code. Code: " + str(r.status_code))
-        #self.logger.debug(pprint.saferepr(r.content))  #DEBUG
-        #self.logger.debug(pprint.saferepr(r.headers))  #DEBUG
-        #self.logger.debug(pprint.saferepr(r.params))  #DEBUG
+        if trigger["local"]:
+            try:
+                self.logger.info("Starting light control")
+                debugOutput = subprocess.check_output('/usr/bin/python3 /opt/light/FFWLightControlTrigger.py', shell=True)
+                self.logger.debug(pprint.saferepr(debugOutput))
+            except:
+                self.logger.error("Light control exception")
 
-        try:
-            self.logger.info("Starting light control")
-            debugOutput = subprocess.check_output('/usr/bin/python3 /opt/light/FFWLightControlTrigger.py', shell=True)
-            self.logger.debug(pprint.saferepr(debugOutput))
-        except:
-            self.logger.error("Light control exception")
-
-        try:
-            self.logger.info("Starting TV control")
-            debugOutput = subprocess.check_output('/usr/bin/php /usr/local/bin/automate_tv 900 &', shell=True)
-            self.logger.debug(pprint.saferepr(debugOutput))
-        except:
-            self.logger.info("TV control exception")
+            try:
+                self.logger.info("Starting TV control")
+                subprocess.check_output('/usr/bin/php /usr/local/bin/automate_tv 900 &', shell=True)
+            except:
+                self.logger.info("TV control exception")
 
         return
 
@@ -113,17 +108,18 @@ class MonitordSocketClient:
 
     def main(self):
         logbook.set_datetime_format("local")
-        StreamHandler(sys.stdout, level=self.LOGLEVEL).push_application()
-        MonitoringFileHandler('/var/log/monitord_socket.log', mode='a', encoding='utf-8', bubble=True, level=self.LOGLEVEL).push_application()
+        StreamHandler(sys.stdout, level=self.config["loglevel"]).push_application()
+        MonitoringFileHandler(self.config["logpath"], mode='a', encoding='utf-8', bubble=True,
+                              level=self.config["loglevel"]).push_application()
         self.logger = Logger('monitord_socket.py')
 
         self.logger.info("starting...")
         connectionErrorCount = 0
         while True:
-            self.logger.info('Connection to {}:{}'.format(self.HOST, self.PORT))
+            self.logger.info('Connection to {}:{}'.format(self.config["host"], self.config["port"]))
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
-                s.connect((self.HOST, self.PORT))
+                s.connect((self.config["host"], self.config["port"]))
             except:
                 connectionErrorCount += 1
                 self.reportConnectionError(connectionErrorCount)
