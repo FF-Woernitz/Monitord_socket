@@ -3,15 +3,17 @@
     "host": "127.0.0.1",
     "port": 9333,
     "loglevel": "INFO",
+    "logpath": "test.log",
     "retries": 5,
-    "retry_delay": 3
+    "retry_delay": 1,
+    "url": "https://www.XXXdivera247.com/api/alarm"
   },
   "trigger": {
     "27835": {
       "name": "FF-ABC",
       "local": true,
       "testalarm":{
-        "day": 5,
+        "weekday": 5,
         "hour_start": 12,
         "hour_end": 12,
         "minute_start": 10,
@@ -26,7 +28,7 @@
       "name": "FF-DEF",
       "local": false,
       "testalarm":{
-        "day": 5,
+        "weekday": 5,
         "hour_start": 12,
         "hour_end": 12,
         "minute_start": 10,
