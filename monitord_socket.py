@@ -39,6 +39,13 @@ class MonitordSocketClient:
             self.logger.error("Received unknown command. Command: " + repr(raw_data))
         return
 
+    def newAlert(self, zvei):
+        if self.checkIfDoubleAlert(zvei):
+            return
+        self.logger.info("{}Received alarm.".format("[" + str(zvei) + "]: "))
+        subprocess.check_output(
+            '/usr/bin/zabbix_sender -c /etc/zabbix/zabbix_agentd.conf -k "receivedZVEI" -o "' + str(zvei) + '"',
+            shell=True)
 
         trigger = self.checkIfAlertinFilter(zvei)
         if not trigger:
@@ -109,10 +116,9 @@ class MonitordSocketClient:
 
         return
 
-    def reportConnectionError(self,count):
+    def reportConnectionError(self, count):
         self.logger.error("Connection Error Count:" + count)
         return
-
 
     def main(self):
         logbook.set_datetime_format("local")
@@ -149,6 +155,7 @@ class MonitordSocketClient:
                 exit()
             s.close()
             time.sleep(5)
+
 
 if __name__ == '__main__':
     c = MonitordSocketClient()
